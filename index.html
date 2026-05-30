@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>ROYAL ROULETTE</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+</head>
+<body>
+    <canvas id="fxCanvas"></canvas>
+
+    <div class="app-container">
+        <header class="app-header">
+            <div class="app-title">ROYAL ROULETTE</div>
+            <div class="wallet-display" id="walletDisplay" title="クリックでコインをリセット">
+                🪙 <span id="uiBalance">10000</span>
+                <span id="btnResetCoin" class="icon-reset">↻</span>
+            </div>
+        </header>
+
+        <div class="arena-card">
+            <div class="roulette-container">
+                <canvas id="rouletteCanvas" width="600" height="600"></canvas>
+            </div>
+            <button id="btnSpin" class="btn-spin">SPIN WHEEL</button>
+        </div>
+
+        <div class="control-panel">
+            <div id="currentBetDisplay" class="current-bet">ベット先を選択してください</div>
+            <button id="btnOpenEdit" class="btn-edit-open">PLACE YOUR BET</button>
+        </div>
+    </div>
+
+    <div class="edit-modal-overlay" id="editModalOverlay">
+        <div class="edit-modal-box">
+            <div class="edit-modal-title">BETTING BOARD</div>
+            
+            <div class="bet-amount-container">
+                <div class="bet-amount-header">
+                    <label>TOTAL STAKE</label>
+                    <div class="bet-amount-display">🪙 <span id="displayBetAmount">100</span></div>
+                </div>
+                <div class="chip-rack">
+                    <button class="chip-btn" data-val="10">+10</button>
+                    <button class="chip-btn" data-val="100">+100</button>
+                    <button class="chip-btn" data-val="500">+500</button>
+                    <button class="chip-btn" data-val="1000">+1K</button>
+                    <button class="chip-btn action-chip" data-val="max">MAX</button>
+                    <button class="chip-btn action-chip" data-val="clear">CLR</button>
+                </div>
+            </div>
+
+            <div id="bettingBoard" class="betting-board"></div>
+
+            <button class="btn-close-modal" id="btnCloseEdit">CONFIRM BET</button>
+        </div>
+    </div>
+
+    <div class="result-overlay" id="resultOverlay">
+        <div class="result-box" id="resultBox">
+            <div class="result-label" id="resultLabel">RESULT</div>
+            <div class="result-text-wrap">
+                <div class="result-number-badge" id="resultNum">---</div>
+                <div class="result-text" id="resultText">---</div>
+            </div>
+            <button class="btn-close" id="btnClose">COLLECT</button>
+        </div>
+    </div>
+
+    <div id="toastMessage" class="toast-message"></div>
+
+    <script src="main.js"></script>
+</body>
+</html>
