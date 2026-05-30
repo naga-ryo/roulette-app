@@ -1,5 +1,6 @@
 (() => {
     const STORAGE_KEY = 'royal_roulette_balance';
+    const STORAGE_KEY_HISTORY = 'royal_roulette_history';
 
     // 状態管理
     const state = {
@@ -9,7 +10,8 @@
         balance: parseInt(localStorage.getItem(STORAGE_KEY)),
         currentBetType: null,
         currentBetValue: null,
-        currentBetAmount: 100
+        currentBetAmount: 100,
+        history: JSON.parse(localStorage.getItem(STORAGE_KEY_HISTORY)) || []
     };
 
     if (isNaN(state.balance)) state.balance = 10000;
@@ -44,14 +46,16 @@
         resultBox: document.getElementById('resultBox'),
         btnClose: document.getElementById('btnClose'),
         toast: document.getElementById('toastMessage'),
-        btnResetCoin: document.getElementById('btnResetCoin')
+        btnResetCoin: document.getElementById('btnResetCoin'),
+        historyList: document.getElementById('historyList')
     };
 
     const init = () => {
         updateBalance(0);
-        ui.displayBetAmount.textContent = state.currentBetAmount;
+        validateBetAmount();
         buildBettingBoard(); 
         resetRoulette();
+        renderHistory();
         bindEvents();
         gsap.ticker.add(physicsLoop);
     };
@@ -63,9 +67,51 @@
         ui.uiBalance.textContent = state.balance;
     };
 
-    // 自作Alertの表示崩れを防ぐため、スタイルを強制的に調整
+    const validateBetAmount = () => {
+        if (state.balance === 0) {
+            state.currentBetAmount = 0;
+        } else if (state.currentBetAmount > state.balance) {
+            state.currentBetAmount = state.balance;
+        } else if (state.currentBetAmount < 1 && state.balance > 0) {
+            state.currentBetAmount = 1;
+        }
+        ui.displayBetAmount.textContent = state.currentBetAmount;
+    };
+
+    const updateBetDisplay = () => {
+        if(state.currentBetType && state.currentBetAmount > 0) {
+            let displayVal = state.currentBetValue;
+            if(state.currentBetType === 'color') displayVal = displayVal.toUpperCase();
+            else if(state.currentBetType === 'highlow' && displayVal === 'low') displayVal = '1-18';
+            else if(state.currentBetType === 'highlow' && displayVal === 'high') displayVal = '19-36';
+            else if(state.currentBetType === 'dozen') displayVal = `${displayVal}st/nd/rd 12`;
+            
+            ui.currentBetDisplay.innerHTML = `<span style="font-size:0.8em; color:#aaa;">BET ON:</span> ${displayVal} <br><span style="color:var(--gold-primary); font-size:1.2em;">🪙 ${state.currentBetAmount}</span>`;
+        } else if (state.balance === 0) {
+            ui.currentBetDisplay.innerHTML = `<span style="color:var(--danger-accent);">破産しました<br>右上の ↻ からリセットしてください</span>`;
+        } else {
+            ui.currentBetDisplay.textContent = 'ベット先を選択してください';
+        }
+    };
+
+    const renderHistory = () => {
+        if (state.history.length === 0) {
+            ui.historyList.innerHTML = '<div class="history-empty">NO HISTORY</div>';
+            return;
+        }
+        ui.historyList.innerHTML = '';
+        state.history.forEach((h, idx) => {
+            const el = document.createElement('div');
+            el.className = 'history-item';
+            if (idx === 0) el.classList.add('new-record'); 
+            el.style.backgroundColor = h.color;
+            el.textContent = h.num;
+            ui.historyList.appendChild(el);
+        });
+    };
+
     const showToast = (msg, isError = true) => {
-        ui.toast.textContent = msg;
+        ui.toast.innerHTML = msg; 
         ui.toast.style.width = 'max-content';
         ui.toast.style.maxWidth = '85%';
         ui.toast.style.whiteSpace = 'normal';
@@ -120,18 +166,15 @@
         drawRoulette();
     };
 
-    // --- 物理演算・描画パラメータ ---
     const trackRadius = 265;     
     const deflectorRadius = 250; 
     const numberOuterVis = 220;  
     const pocketOuterVis = 190;  
     const pocketInnerVis = 160;  
-
     const pocketOuter = 190; 
     const pocketInner = 160;    
     const settleRadius = 175;    
 
-    // ★ 木目模様を事前に生成して固定（ウネウネ動くのを防ぐ）
     const woodTextureOuter = [];
     for (let r = 260; r < 310; ) {
         let step = Math.random() * 2.5 + 1;
@@ -156,64 +199,69 @@
         r += step;
     }
 
-    const drawRoulette = () => {
-        const ctx = ui.rCtx;
-        const total = state.items.length;
-        ctx.clearRect(0, 0, 600, 600);
+    // ★ オフスクリーンキャンバスの準備
+    let isPreRendered = false;
+    const bgCanvas = document.createElement('canvas');
+    bgCanvas.width = 600; bgCanvas.height = 600;
+    const bgCtx = bgCanvas.getContext('2d');
+
+    const wheelCanvas = document.createElement('canvas');
+    wheelCanvas.width = 600; wheelCanvas.height = 600;
+    const wheelCtx = wheelCanvas.getContext('2d');
+
+    const preRender = () => {
         const center = 300;
-        
-        // 外側の木目ベース
-        ctx.beginPath(); ctx.arc(center, center, 290, 0, Math.PI * 2); 
-        ctx.fillStyle = '#4a2610'; ctx.fill();
+        const total = state.items.length;
 
-        // 静的な年輪（木目）を描画
-        ctx.save();
-        ctx.beginPath(); ctx.arc(center, center, 290, 0, Math.PI * 2); ctx.clip();
-        ctx.lineWidth = 1.2;
+        // --- 1. 動かない背景部分の事前描画 ---
+        bgCtx.clearRect(0, 0, 600, 600);
+        bgCtx.beginPath(); bgCtx.arc(center, center, 290, 0, Math.PI * 2); 
+        bgCtx.fillStyle = '#4a2610'; bgCtx.fill();
+
+        bgCtx.save();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 290, 0, Math.PI * 2); bgCtx.clip();
+        bgCtx.lineWidth = 1.2;
         woodTextureOuter.forEach(w => {
-            ctx.strokeStyle = w.color;
-            ctx.beginPath();
-            ctx.arc(center + w.ox, center + w.oy, w.r, 0, Math.PI * 2);
-            ctx.stroke();
+            bgCtx.strokeStyle = w.color;
+            bgCtx.beginPath();
+            bgCtx.arc(center + w.ox, center + w.oy, w.r, 0, Math.PI * 2);
+            bgCtx.stroke();
         });
-        ctx.restore();
+        bgCtx.restore();
 
-        // ニスのような光沢グラデーションを重ねる
-        const rimGrad = ctx.createRadialGradient(center, center, 260, center, center, 300);
+        const rimGrad = bgCtx.createRadialGradient(center, center, 260, center, center, 300);
         rimGrad.addColorStop(0, 'rgba(46, 21, 10, 0.85)');
-        rimGrad.addColorStop(0.3, 'rgba(122, 57, 21, 0.6)'); // 光沢
+        rimGrad.addColorStop(0.3, 'rgba(122, 57, 21, 0.6)'); 
         rimGrad.addColorStop(0.6, 'rgba(74, 38, 16, 0.8)');
         rimGrad.addColorStop(0.9, 'rgba(30, 13, 4, 0.95)');
         rimGrad.addColorStop(1, 'rgba(5, 2, 1, 1)');
-        ctx.beginPath(); ctx.arc(center, center, 290, 0, Math.PI * 2); ctx.fillStyle = rimGrad; ctx.fill();
-        ctx.lineWidth = 4; ctx.strokeStyle = '#0a0502'; ctx.stroke();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 290, 0, Math.PI * 2); bgCtx.fillStyle = rimGrad; bgCtx.fill();
+        bgCtx.lineWidth = 4; bgCtx.strokeStyle = '#0a0502'; bgCtx.stroke();
 
-        ctx.beginPath(); ctx.arc(center, center, 285, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(center, center, 284, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.stroke();
-        ctx.beginPath(); ctx.arc(center, center, 266, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.stroke();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 285, 0, Math.PI * 2); bgCtx.lineWidth = 1; bgCtx.strokeStyle = 'rgba(0,0,0,0.6)'; bgCtx.stroke();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 284, 0, Math.PI * 2); bgCtx.lineWidth = 1; bgCtx.strokeStyle = 'rgba(255,255,255,0.08)'; bgCtx.stroke();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 266, 0, Math.PI * 2); bgCtx.lineWidth = 1; bgCtx.strokeStyle = 'rgba(0,0,0,0.8)'; bgCtx.stroke();
 
-        const goldRingGrad = ctx.createLinearGradient(0, 0, 600, 600);
+        const goldRingGrad = bgCtx.createLinearGradient(0, 0, 600, 600);
         goldRingGrad.addColorStop(0, '#fff3ce');
         goldRingGrad.addColorStop(0.2, '#8a6c1c');
-        goldRingGrad.addColorStop(0.5, '#ffffff'); // 強いハイライト
+        goldRingGrad.addColorStop(0.5, '#ffffff'); 
         goldRingGrad.addColorStop(0.8, '#4a3200');
         goldRingGrad.addColorStop(1, '#fceea7');
-        ctx.beginPath(); ctx.arc(center, center, 275, 0, Math.PI * 2); ctx.lineWidth = 5; ctx.strokeStyle = goldRingGrad; ctx.stroke();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 275, 0, Math.PI * 2); bgCtx.lineWidth = 5; bgCtx.strokeStyle = goldRingGrad; bgCtx.stroke();
         
-        ctx.beginPath(); ctx.arc(center, center, 272, 0, Math.PI * 2); ctx.fillStyle = '#140a05'; ctx.fill();
+        bgCtx.beginPath(); bgCtx.arc(center, center, 272, 0, Math.PI * 2); bgCtx.fillStyle = '#140a05'; bgCtx.fill();
 
-        // 扇形の区切り線（ボウル部分の装飾溝）
-        ctx.save();
-        ctx.translate(center, center);
+        bgCtx.save();
+        bgCtx.translate(center, center);
         for(let i=0; i<16; i++) {
             const angle = (Math.PI * 2 / 16) * i + (Math.PI / 16); 
             
-            // ゴールドの線
-            ctx.beginPath();
-            ctx.moveTo(Math.cos(angle) * numberOuterVis, Math.sin(angle) * numberOuterVis);
-            ctx.lineTo(Math.cos(angle) * 272, Math.sin(angle) * 272);
+            bgCtx.beginPath();
+            bgCtx.moveTo(Math.cos(angle) * numberOuterVis, Math.sin(angle) * numberOuterVis);
+            bgCtx.lineTo(Math.cos(angle) * 272, Math.sin(angle) * 272);
             
-            const lineGrad = ctx.createLinearGradient(
+            const lineGrad = bgCtx.createLinearGradient(
                 Math.cos(angle) * numberOuterVis, Math.sin(angle) * numberOuterVis,
                 Math.cos(angle) * 272, Math.sin(angle) * 272
             );
@@ -221,21 +269,20 @@
             lineGrad.addColorStop(0.5, 'rgba(212, 175, 55, 0.3)');
             lineGrad.addColorStop(1, 'rgba(0,0,0,0)');
             
-            ctx.lineWidth = 2.5;
-            ctx.strokeStyle = lineGrad;
-            ctx.stroke();
+            bgCtx.lineWidth = 2.5;
+            bgCtx.strokeStyle = lineGrad;
+            bgCtx.stroke();
 
-            // 溝の立体感を出すシャドウ
-            ctx.beginPath();
-            ctx.moveTo(Math.cos(angle + 0.015) * numberOuterVis, Math.sin(angle + 0.015) * numberOuterVis);
-            ctx.lineTo(Math.cos(angle + 0.015) * 272, Math.sin(angle + 0.015) * 272);
-            ctx.lineWidth = 1.5;
-            ctx.strokeStyle = 'rgba(0,0,0,0.8)';
-            ctx.stroke();
+            bgCtx.beginPath();
+            bgCtx.moveTo(Math.cos(angle + 0.015) * numberOuterVis, Math.sin(angle + 0.015) * numberOuterVis);
+            bgCtx.lineTo(Math.cos(angle + 0.015) * 272, Math.sin(angle + 0.015) * 272);
+            bgCtx.lineWidth = 1.5;
+            bgCtx.strokeStyle = 'rgba(0,0,0,0.8)';
+            bgCtx.stroke();
         }
-        ctx.restore();
+        bgCtx.restore();
 
-        const pinGrad = ctx.createLinearGradient(-6, -8, 6, 8);
+        const pinGrad = bgCtx.createLinearGradient(-6, -8, 6, 8);
         pinGrad.addColorStop(0, '#ffffff');
         pinGrad.addColorStop(0.4, '#d4af37');
         pinGrad.addColorStop(1, '#4a3200');
@@ -245,135 +292,162 @@
             const px = center + Math.cos(defA) * deflectorRadius;
             const py = center + Math.sin(defA) * deflectorRadius;
             
-            ctx.save(); ctx.translate(px + 2, py + 2); ctx.rotate(defA + Math.PI/2);
-            ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 0); ctx.lineTo(0, 9); ctx.lineTo(-6, 0); ctx.closePath();
-            ctx.fillStyle = 'rgba(0,0,0,0.8)'; ctx.fill(); ctx.restore();
+            bgCtx.save(); bgCtx.translate(px + 2, py + 2); bgCtx.rotate(defA + Math.PI/2);
+            bgCtx.beginPath(); bgCtx.moveTo(0, -9); bgCtx.lineTo(6, 0); bgCtx.lineTo(0, 9); bgCtx.lineTo(-6, 0); bgCtx.closePath();
+            bgCtx.fillStyle = 'rgba(0,0,0,0.8)'; bgCtx.fill(); bgCtx.restore();
 
-            ctx.save(); ctx.translate(px, py); ctx.rotate(defA + Math.PI/2);
-            ctx.beginPath(); ctx.moveTo(0, -9); ctx.lineTo(6, 0); ctx.lineTo(0, 9); ctx.lineTo(-6, 0); ctx.closePath();
-            ctx.fillStyle = pinGrad; ctx.fill();
-            ctx.lineWidth = 0.5; ctx.strokeStyle = '#fff'; ctx.stroke(); 
-            ctx.restore();
+            bgCtx.save(); bgCtx.translate(px, py); bgCtx.rotate(defA + Math.PI/2);
+            bgCtx.beginPath(); bgCtx.moveTo(0, -9); bgCtx.lineTo(6, 0); bgCtx.lineTo(0, 9); bgCtx.lineTo(-6, 0); bgCtx.closePath();
+            bgCtx.fillStyle = pinGrad; bgCtx.fill();
+            bgCtx.lineWidth = 0.5; bgCtx.strokeStyle = '#fff'; bgCtx.stroke(); 
+            bgCtx.restore();
         }
 
-        if (total > 0) {
-            ctx.save(); ctx.translate(center, center); ctx.rotate(physics.wheelAngle);
-            const arc = (Math.PI * 2) / total;
+        // --- 2. 回転する盤面の事前描画 ---
+        wheelCtx.clearRect(0, 0, 600, 600);
+        wheelCtx.save();
+        wheelCtx.translate(center, center);
+        const arc = (Math.PI * 2) / total;
 
-            for (let i = 0; i < total; i++) {
-                const a = i * arc; const color = state.colors[i];
-                
-                ctx.beginPath(); ctx.arc(0, 0, numberOuterVis, a, a + arc); ctx.arc(0, 0, pocketOuterVis, a + arc, a, true); ctx.closePath();
-                ctx.fillStyle = color; ctx.fill();
-
-                ctx.beginPath(); ctx.arc(0, 0, pocketOuterVis, a, a + arc); ctx.arc(0, 0, pocketInnerVis, a + arc, a, true); ctx.closePath();
-                ctx.fillStyle = color; ctx.fill(); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
-                
-                ctx.save(); 
-                ctx.rotate(a + arc / 2); 
-                ctx.textAlign = 'center'; 
-                ctx.textBaseline = 'middle'; 
-                ctx.fillStyle = '#fff';
-                ctx.shadowColor = 'rgba(0,0,0,1)';
-                ctx.shadowBlur = 4;
-                ctx.shadowOffsetY = 1;
-                const fontSize = Math.min(22, (arc * numberOuterVis) * 0.85); 
-                ctx.font = `900 ${fontSize}px Arial`; 
-                ctx.translate(205, 0); 
-                ctx.rotate(Math.PI / 2); 
-                ctx.fillText(state.items[i], 0, 0); 
-                ctx.restore();
-            }
-
-            ctx.beginPath(); ctx.arc(0, 0, pocketOuterVis, 0, Math.PI * 2); ctx.lineWidth = 2; ctx.strokeStyle = goldRingGrad; ctx.stroke();
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2); ctx.lineWidth = 4; ctx.strokeStyle = goldRingGrad; ctx.stroke();
-
-            for (let i = 0; i < total; i++) {
-                const a = i * arc;
-                ctx.beginPath(); ctx.moveTo(Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis); ctx.lineTo(Math.cos(a)*numberOuterVis, Math.sin(a)*numberOuterVis);
-                ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(212,175,55,0.5)'; ctx.stroke();
-
-                const fretGrad = ctx.createLinearGradient(Math.cos(a)*pocketInnerVis, Math.sin(a)*pocketInnerVis, Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis);
-                fretGrad.addColorStop(0, '#554000'); 
-                fretGrad.addColorStop(0.3, '#d4af37'); 
-                fretGrad.addColorStop(0.6, '#ffffff'); 
-                fretGrad.addColorStop(0.8, '#d4af37'); 
-                fretGrad.addColorStop(1, '#554000');
-
-                ctx.beginPath(); ctx.moveTo(Math.cos(a)*pocketInnerVis, Math.sin(a)*pocketInnerVis); ctx.lineTo(Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis);
-                ctx.lineWidth = 3; ctx.strokeStyle = fretGrad; ctx.stroke();
-            }
-
-            // 中心のコーンにも固定された木目とニス光沢
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2);
-            ctx.fillStyle = '#4a2610'; ctx.fill();
-
-            ctx.save();
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2); ctx.clip();
-            ctx.lineWidth = 1.0;
-            woodTextureInner.forEach(w => {
-                ctx.strokeStyle = w.color;
-                ctx.beginPath();
-                ctx.arc(w.ox, w.oy, w.r, 0, Math.PI * 2);
-                ctx.stroke();
-            });
-            ctx.restore();
-
-            const coneGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, pocketInnerVis);
-            coneGrad.addColorStop(0, 'rgba(139, 69, 19, 0.6)'); // 中央ハイライト
-            coneGrad.addColorStop(0.5, 'rgba(74, 38, 16, 0.8)'); 
-            coneGrad.addColorStop(0.9, 'rgba(30, 13, 4, 0.95)'); 
-            coneGrad.addColorStop(1, 'rgba(5, 2, 1, 1)'); 
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2);
-            ctx.fillStyle = coneGrad; ctx.fill();
+        for (let i = 0; i < total; i++) {
+            const a = i * arc; const color = state.colors[i];
             
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis - 10, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.stroke();
-            ctx.beginPath(); ctx.arc(0, 0, pocketInnerVis - 11, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.stroke();
+            wheelCtx.beginPath(); wheelCtx.arc(0, 0, numberOuterVis, a, a + arc); wheelCtx.arc(0, 0, pocketOuterVis, a + arc, a, true); wheelCtx.closePath();
+            wheelCtx.fillStyle = color; wheelCtx.fill();
+
+            wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketOuterVis, a, a + arc); wheelCtx.arc(0, 0, pocketInnerVis, a + arc, a, true); wheelCtx.closePath();
+            wheelCtx.fillStyle = color; wheelCtx.fill(); wheelCtx.fillStyle = 'rgba(0,0,0,0.6)'; wheelCtx.fill();
             
-            const centerGoldGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, 30);
-            centerGoldGrad.addColorStop(0, '#ffffff');
-            centerGoldGrad.addColorStop(0.3, '#fceea7');
-            centerGoldGrad.addColorStop(0.7, '#d4af37');
-            centerGoldGrad.addColorStop(1, '#554000');
-
-            // 十字オーナメントの強烈な光沢
-            for(let i=0; i<4; i++){
-                ctx.save(); ctx.rotate((Math.PI/2) * i);
-                ctx.beginPath(); ctx.moveTo(10, -5); ctx.lineTo(80, -2); ctx.lineTo(80, 2); ctx.lineTo(10, 5); ctx.closePath();
-                const armGrad = ctx.createLinearGradient(10, 0, 80, 0);
-                armGrad.addColorStop(0, '#d4af37'); 
-                armGrad.addColorStop(0.4, '#ffffff'); // 強い白光
-                armGrad.addColorStop(0.6, '#ffffff');
-                armGrad.addColorStop(1, '#8a6d1c');
-                ctx.fillStyle = armGrad; 
-                ctx.shadowColor = 'rgba(255,255,255,0.7)';
-                ctx.shadowBlur = 8;
-                ctx.fill();
-
-                // センターラインのハイライト
-                ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(75, 0);
-                ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.stroke();
-                
-                ctx.beginPath(); ctx.arc(85, 0, 8, 0, Math.PI*2); ctx.fillStyle = centerGoldGrad; ctx.fill();
-                ctx.beginPath(); ctx.arc(85, 0, 4, 0, Math.PI*2); 
-                ctx.fillStyle = '#fff'; 
-                ctx.shadowColor = '#fff';
-                ctx.shadowBlur = 15; // 先端を光らせる
-                ctx.fill(); 
-                ctx.restore();
-            }
-            
-            ctx.beginPath(); ctx.arc(0, 0, 26, 0, Math.PI * 2); ctx.fillStyle = centerGoldGrad; ctx.fill(); 
-            ctx.beginPath(); ctx.arc(0, 0, 15, 0, Math.PI * 2); ctx.lineWidth = 1; ctx.strokeStyle = '#554000'; ctx.stroke();
-            ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); 
-            ctx.fillStyle = '#ffffff'; 
-            ctx.shadowColor = 'rgba(255,255,255,1)';
-            ctx.shadowBlur = 20; 
-            ctx.fill();
-
-            ctx.restore();
+            wheelCtx.save(); 
+            wheelCtx.rotate(a + arc / 2); 
+            wheelCtx.textAlign = 'center'; 
+            wheelCtx.textBaseline = 'middle'; 
+            wheelCtx.fillStyle = '#fff';
+            wheelCtx.shadowColor = 'rgba(0,0,0,1)';
+            wheelCtx.shadowBlur = 4;
+            wheelCtx.shadowOffsetY = 1;
+            const fontSize = Math.min(22, (arc * numberOuterVis) * 0.85); 
+            wheelCtx.font = `900 ${fontSize}px Arial`; 
+            wheelCtx.translate(205, 0); 
+            wheelCtx.rotate(Math.PI / 2); 
+            wheelCtx.fillText(state.items[i], 0, 0); 
+            wheelCtx.restore();
         }
 
+        const goldRingGradW = wheelCtx.createLinearGradient(-300, -300, 300, 300);
+        goldRingGradW.addColorStop(0, '#fff3ce');
+        goldRingGradW.addColorStop(0.2, '#8a6c1c');
+        goldRingGradW.addColorStop(0.5, '#ffffff'); 
+        goldRingGradW.addColorStop(0.8, '#4a3200');
+        goldRingGradW.addColorStop(1, '#fceea7');
+
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketOuterVis, 0, Math.PI * 2); wheelCtx.lineWidth = 2; wheelCtx.strokeStyle = goldRingGradW; wheelCtx.stroke();
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2); wheelCtx.lineWidth = 4; wheelCtx.strokeStyle = goldRingGradW; wheelCtx.stroke();
+
+        for (let i = 0; i < total; i++) {
+            const a = i * arc;
+            wheelCtx.beginPath(); wheelCtx.moveTo(Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis); wheelCtx.lineTo(Math.cos(a)*numberOuterVis, Math.sin(a)*numberOuterVis);
+            wheelCtx.lineWidth = 1; wheelCtx.strokeStyle = 'rgba(212,175,55,0.5)'; wheelCtx.stroke();
+
+            const fretGrad = wheelCtx.createLinearGradient(Math.cos(a)*pocketInnerVis, Math.sin(a)*pocketInnerVis, Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis);
+            fretGrad.addColorStop(0, '#554000'); 
+            fretGrad.addColorStop(0.3, '#d4af37'); 
+            fretGrad.addColorStop(0.6, '#ffffff'); 
+            fretGrad.addColorStop(0.8, '#d4af37'); 
+            fretGrad.addColorStop(1, '#554000');
+
+            wheelCtx.beginPath(); wheelCtx.moveTo(Math.cos(a)*pocketInnerVis, Math.sin(a)*pocketInnerVis); wheelCtx.lineTo(Math.cos(a)*pocketOuterVis, Math.sin(a)*pocketOuterVis);
+            wheelCtx.lineWidth = 3; wheelCtx.strokeStyle = fretGrad; wheelCtx.stroke();
+        }
+
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2);
+        wheelCtx.fillStyle = '#4a2610'; wheelCtx.fill();
+
+        wheelCtx.save();
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2); wheelCtx.clip();
+        wheelCtx.lineWidth = 1.0;
+        woodTextureInner.forEach(w => {
+            wheelCtx.strokeStyle = w.color;
+            wheelCtx.beginPath();
+            wheelCtx.arc(w.ox, w.oy, w.r, 0, Math.PI * 2);
+            wheelCtx.stroke();
+        });
+        wheelCtx.restore();
+
+        const coneGrad = wheelCtx.createRadialGradient(0, 0, 0, 0, 0, pocketInnerVis);
+        coneGrad.addColorStop(0, 'rgba(139, 69, 19, 0.6)'); 
+        coneGrad.addColorStop(0.5, 'rgba(74, 38, 16, 0.8)'); 
+        coneGrad.addColorStop(0.9, 'rgba(30, 13, 4, 0.95)'); 
+        coneGrad.addColorStop(1, 'rgba(5, 2, 1, 1)'); 
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis, 0, Math.PI * 2);
+        wheelCtx.fillStyle = coneGrad; wheelCtx.fill();
+        
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis - 10, 0, Math.PI * 2); wheelCtx.lineWidth = 1; wheelCtx.strokeStyle = 'rgba(0,0,0,0.8)'; wheelCtx.stroke();
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, pocketInnerVis - 11, 0, Math.PI * 2); wheelCtx.lineWidth = 1; wheelCtx.strokeStyle = 'rgba(255,255,255,0.05)'; wheelCtx.stroke();
+        
+        const centerGoldGrad = wheelCtx.createRadialGradient(0, 0, 0, 0, 0, 30);
+        centerGoldGrad.addColorStop(0, '#ffffff');
+        centerGoldGrad.addColorStop(0.3, '#fceea7');
+        centerGoldGrad.addColorStop(0.7, '#d4af37');
+        centerGoldGrad.addColorStop(1, '#554000');
+
+        for(let i=0; i<4; i++){
+            wheelCtx.save(); wheelCtx.rotate((Math.PI/2) * i);
+            wheelCtx.beginPath(); wheelCtx.moveTo(10, -5); wheelCtx.lineTo(80, -2); wheelCtx.lineTo(80, 2); wheelCtx.lineTo(10, 5); wheelCtx.closePath();
+            const armGrad = wheelCtx.createLinearGradient(10, 0, 80, 0);
+            armGrad.addColorStop(0, '#d4af37'); 
+            armGrad.addColorStop(0.4, '#ffffff'); 
+            armGrad.addColorStop(0.6, '#ffffff');
+            armGrad.addColorStop(1, '#8a6d1c');
+            wheelCtx.fillStyle = armGrad; 
+            wheelCtx.shadowColor = 'rgba(255,255,255,0.7)';
+            wheelCtx.shadowBlur = 8;
+            wheelCtx.fill();
+
+            wheelCtx.beginPath(); wheelCtx.moveTo(15, 0); wheelCtx.lineTo(75, 0);
+            wheelCtx.lineWidth = 1.5; wheelCtx.strokeStyle = 'rgba(255,255,255,0.9)'; wheelCtx.stroke();
+            
+            wheelCtx.beginPath(); wheelCtx.arc(85, 0, 8, 0, Math.PI*2); wheelCtx.fillStyle = centerGoldGrad; wheelCtx.fill();
+            wheelCtx.beginPath(); wheelCtx.arc(85, 0, 4, 0, Math.PI*2); 
+            wheelCtx.fillStyle = '#fff'; 
+            wheelCtx.shadowColor = '#fff';
+            wheelCtx.shadowBlur = 15; 
+            wheelCtx.fill(); 
+            wheelCtx.restore();
+        }
+        
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, 26, 0, Math.PI * 2); wheelCtx.fillStyle = centerGoldGrad; wheelCtx.fill(); 
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, 15, 0, Math.PI * 2); wheelCtx.lineWidth = 1; wheelCtx.strokeStyle = '#554000'; wheelCtx.stroke();
+        wheelCtx.beginPath(); wheelCtx.arc(0, 0, 8, 0, Math.PI * 2); 
+        wheelCtx.fillStyle = '#ffffff'; 
+        wheelCtx.shadowColor = 'rgba(255,255,255,1)';
+        wheelCtx.shadowBlur = 20; 
+        wheelCtx.fill();
+
+        wheelCtx.restore();
+        isPreRendered = true;
+    };
+
+    const drawRoulette = () => {
+        if (!isPreRendered) preRender();
+
+        const ctx = ui.rCtx;
+        const center = 300;
+        
+        ctx.clearRect(0, 0, 600, 600);
+
+        // キャッシュした背景を描画
+        ctx.drawImage(bgCanvas, 0, 0);
+
+        // キャッシュしたホイールを描画
+        ctx.save();
+        ctx.translate(center, center);
+        ctx.rotate(physics.wheelAngle);
+        ctx.translate(-center, -center);
+        ctx.drawImage(wheelCanvas, 0, 0);
+        ctx.restore();
+
+        // ボール本体を描画
         const bx = center + Math.cos(physics.ballAngle) * physics.ballRadius;
         const by = center + Math.sin(physics.ballAngle) * physics.ballRadius;
         const ballSize = 7.5; 
@@ -575,6 +649,11 @@
         if(colorHex === '#a61c1c') colorName = 'red';
         if(colorHex === '#0e4c34') colorName = 'green';
 
+        state.history.unshift({ num: num, color: colorHex });
+        if (state.history.length > 20) state.history.pop();
+        localStorage.setItem(STORAGE_KEY_HISTORY, JSON.stringify(state.history));
+        renderHistory();
+
         let isWin = false; let payout = 0;
         const type = state.currentBetType; const val = state.currentBetValue;
 
@@ -622,6 +701,9 @@
             ui.overlay.style.pointerEvents = 'none';
             state.isSpinning = false;
             
+            validateBetAmount();
+            updateBetDisplay();
+            
             ui.btnSpin.textContent = 'SPIN WHEEL';
             ui.btnSpin.classList.remove('spinning');
             ui.btnOpenEdit.disabled = false;
@@ -635,6 +717,7 @@
 
         ui.btnOpenEdit.addEventListener('click', () => {
             if (state.isSpinning) return;
+            validateBetAmount();
             ui.editModalOverlay.classList.add('show');
         });
 
@@ -644,7 +727,7 @@
                 if (val === 'max') {
                     state.currentBetAmount = state.balance;
                 } else if (val === 'clear') {
-                    state.currentBetAmount = 1;
+                    state.currentBetAmount = (state.balance > 0) ? 1 : 0;
                 } else {
                     const num = parseInt(val);
                     if (state.currentBetAmount === 1 && num > 0) {
@@ -655,7 +738,7 @@
                 }
                 
                 if (state.currentBetAmount > state.balance) state.currentBetAmount = state.balance;
-                if (state.currentBetAmount < 1) state.currentBetAmount = 1;
+                if (state.currentBetAmount < 1 && state.balance > 0) state.currentBetAmount = 1;
                 
                 ui.displayBetAmount.textContent = state.currentBetAmount;
             });
@@ -675,17 +758,7 @@
         });
 
         ui.btnCloseEdit.addEventListener('click', () => {
-            if(state.currentBetType) {
-                let displayVal = state.currentBetValue;
-                if(state.currentBetType === 'color') displayVal = displayVal.toUpperCase();
-                else if(state.currentBetType === 'highlow' && displayVal === 'low') displayVal = '1-18';
-                else if(state.currentBetType === 'highlow' && displayVal === 'high') displayVal = '19-36';
-                else if(state.currentBetType === 'dozen') displayVal = `${displayVal}st/nd/rd 12`;
-                
-                ui.currentBetDisplay.innerHTML = `<span style="font-size:0.8em; color:#aaa;">BET ON:</span> ${displayVal} <span style="color:var(--gold-primary); font-size:1.2em;">🪙 ${state.currentBetAmount}</span>`;
-            } else {
-                ui.currentBetDisplay.textContent = 'ベット先を選択してください';
-            }
+            updateBetDisplay();
             ui.editModalOverlay.classList.remove('show');
         });
 
@@ -693,7 +766,7 @@
             if (state.isSpinning) return;
             
             if (state.balance > 0) {
-                showToast("所持コインがゼロになった時のみリセット可能です", true);
+                showToast("所持コインがゼロになった時のみ<br>リセット可能です", true);
                 return;
             }
             
@@ -702,10 +775,13 @@
             ui.uiBalance.textContent = state.balance;
             showToast("コインをリセットしました！", false);
             
-            if (state.currentBetAmount > state.balance) {
+            if (state.currentBetAmount === 0) {
+                state.currentBetAmount = 100;
+            } else if (state.currentBetAmount > state.balance) {
                 state.currentBetAmount = state.balance;
-                ui.displayBetAmount.textContent = state.currentBetAmount;
             }
+            ui.displayBetAmount.textContent = state.currentBetAmount;
+            updateBetDisplay();
         });
     };
 
