@@ -197,12 +197,32 @@ canvas#rouletteCanvas {
 
 /* ★ 法的防衛用免責事項のスタイル */
 .disclaimer {
-    text-align: center;
-    font-size: 0.75rem;
-    color: rgba(255, 255, 255, 0.4);
+    background: rgba(0, 0, 0, 0.6);
+    border: 1px solid rgba(230, 46, 81, 0.3);
+    border-radius: 8px;
+    padding: 12px 15px;
     margin-top: 5px;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.6);
     line-height: 1.5;
-    letter-spacing: 0.5px;
+}
+.disclaimer p {
+    color: var(--danger-accent);
+    margin-bottom: 8px;
+    text-align: center;
+    font-size: 0.85rem;
+    letter-spacing: 1px;
+}
+.disclaimer ul {
+    list-style-type: disc;
+    padding-left: 18px;
+    margin: 0;
+}
+.disclaimer li {
+    margin-bottom: 5px;
+}
+.disclaimer li:last-child {
+    margin-bottom: 0;
 }
 
 /* モーダル */
