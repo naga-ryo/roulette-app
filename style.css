@@ -1,5 +1,5 @@
 :root {
-    --bg-deep: #06110b; /* 少しグリーンがかったダークトーン */
+    --bg-deep: #06110b;
     --gold-primary: #d4af37;
     --gold-light: #fceea7;
     --gold-dark: #8a6c1c;
@@ -193,6 +193,16 @@ canvas#rouletteCanvas {
 .btn-edit-open:active {
     background: rgba(212, 175, 55, 0.2);
     box-shadow: 0 0 15px rgba(212, 175, 55, 0.4);
+}
+
+/* ★ 法的防衛用免責事項のスタイル */
+.disclaimer {
+    text-align: center;
+    font-size: 0.75rem;
+    color: rgba(255, 255, 255, 0.4);
+    margin-top: 5px;
+    line-height: 1.5;
+    letter-spacing: 0.5px;
 }
 
 /* モーダル */
@@ -443,25 +453,15 @@ canvas#fxCanvas { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
     transform: translateX(-50%) translateY(20px);
     background: rgba(15, 5, 10, 0.95);
     color: var(--danger-accent);
-    padding: 12px 20px;
-    border-radius: 8px; /* 丸すぎるのを少しシャープに */
+    border-radius: 8px;
     border: 2px solid var(--danger-accent);
     font-size: 1.05rem;
     font-weight: bold;
     letter-spacing: 1px;
-    box-shadow: 0 10px 20px rgba(0,0,0,0.8), 0 0 15px rgba(230, 46, 81, 0.4);
     opacity: 0;
     pointer-events: none;
     transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
     z-index: 1000;
-    
-    /* 表示崩れを修正 */
-    width: 90%;
-    max-width: 400px;
-    white-space: normal; /* 折り返しを許可 */
-    text-align: center;
-    line-height: 1.4;
-    word-break: auto-phrase;
 }
 .toast-message.show {
     opacity: 1;
